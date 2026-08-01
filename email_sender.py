@@ -2,6 +2,8 @@ import smtplib
 import socket
 from contextlib import contextmanager
 
+import gmail_client
+
 
 @contextmanager
 def _force_ipv4():
@@ -35,6 +37,9 @@ def send(mime_message, smtp_config):
     case that actually means "this address doesn't work." Django uses this
     to decide whether to retry later or mark the lead bounced (see
     campaigns/services/send_report_service.py)."""
+    if smtp_config.get("oauth_refresh_token"):
+        return gmail_client.send(mime_message, smtp_config)
+
     try:
         with _force_ipv4():
             if smtp_config.get("use_ssl"):
