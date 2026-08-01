@@ -62,6 +62,15 @@ def report_notifications_pushed(ids):
     return resp.json()
 
 
+def report_gmail_oauth_complete(refresh_token, email):
+    resp = requests.post(
+        f"{API_URL}/gmail/oauth-complete/", headers=HEADERS,
+        json={"refresh_token": refresh_token, "email": email}, timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def report_reply_detected(payload):
     resp = requests.post(f"{API_URL}/replies/detected/", headers=HEADERS, json=payload, timeout=TIMEOUT)
     resp.raise_for_status()
