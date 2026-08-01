@@ -9,25 +9,43 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
 LEVEL_EMOJI = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}
 
+# Notification types that read as part of the actual email conversation
+# (the sent message, or a lead's reply) go to the "Email" topic; everything
+# else (errors, campaign/sourcing status) goes to "Logs" — see
+# OrgSettings.telegram_email_topic_id/telegram_logs_topic_id. Both are
+# optional: if unset, message_thread_id is omitted and Telegram posts to the
+# chat's main stream (a plain group, or a forum's General topic).
+EMAIL_TOPIC_TYPES = {"email_sent", "reply_received", "reply_unmatched"}
+
+# These are built as a self-contained "card": a bold <b> heading, a blank
+# line under it, then HTML-escaped fields (see send_report_service.py and
+# reply_service.py, which escape every dynamic value themselves) — so they
+# get HTML parse_mode, and skip the generic level emoji prefix since the
+# heading already gives the message its own visual anchor. Every other type
+# is free-form, unescaped text, so parse_mode stays off for those to avoid
+# Telegram rejecting a message over a stray "<"/"&".
+CARD_TYPES = {"email_sent", "reply_received", "reply_unmatched"}
+
 
 def push_notifications(config, report_pushed_fn):
     token = config.get("telegram_bot_token")
     chat_id = config.get("telegram_chat_id")
+    email_topic_id = config.get("telegram_email_topic_id")
+    logs_topic_id = config.get("telegram_logs_topic_id")
     pending = config.get("pending_notifications") or []
     if not token or not chat_id or not pending:
         return
 
     pushed_ids = []
     for notification in pending:
-        emoji = LEVEL_EMOJI.get(notification["level"], "ℹ️")
-        payload = {"chat_id": chat_id, "text": f"{emoji} {notification['message']}"}
-        if notification.get("type") == "email_sent":
-            # Only this notification type is built with a literal <b> tag
-            # (see send_report_service.py, which HTML-escapes every dynamic
-            # field itself) — every other type sends free-form text that
-            # was never escaped for HTML, so parse_mode stays off for those
-            # to avoid Telegram rejecting a message over a stray "<"/"&".
+        is_card = notification.get("type") in CARD_TYPES
+        text = notification["message"] if is_card else f"{LEVEL_EMOJI.get(notification['level'], 'ℹ️')} {notification['message']}"
+        payload = {"chat_id": chat_id, "text": text}
+        if is_card:
             payload["parse_mode"] = "HTML"
+        topic_id = email_topic_id if notification.get("type") in EMAIL_TOPIC_TYPES else logs_topic_id
+        if topic_id:
+            payload["message_thread_id"] = topic_id
         try:
             requests.post(
                 TELEGRAM_API.format(token=token),
@@ -57,11 +75,11 @@ def push_error(config, source, message):
     chat_id = config.get("telegram_chat_id")
     if not token or not chat_id:
         return
+    payload = {"chat_id": chat_id, "text": f"❌ {source}: {message}"}
+    logs_topic_id = config.get("telegram_logs_topic_id")
+    if logs_topic_id:
+        payload["message_thread_id"] = logs_topic_id
     try:
-        requests.post(
-            TELEGRAM_API.format(token=token),
-            json={"chat_id": chat_id, "text": f"❌ {source}: {message}"},
-            timeout=10,
-        )
+        requests.post(TELEGRAM_API.format(token=token), json=payload, timeout=10)
     except requests.RequestException as e:
         print(f"Failed to push error to Telegram: {e}")
