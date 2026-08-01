@@ -6,50 +6,9 @@ The worker never decides which replies matter."""
 
 import email
 import imaplib
-from email.header import decode_header
-from email.utils import parseaddr, parsedate_to_datetime
 
-
-def _decode(value):
-    if not value:
-        return ""
-    parts = decode_header(value)
-    return "".join(
-        (part.decode(enc or "utf-8", errors="ignore") if isinstance(part, bytes) else part)
-        for part, enc in parts
-    )
-
-
-def _extract_snippet(message):
-    if message.is_multipart():
-        for part in message.walk():
-            if part.get_content_type() == "text/plain" and not part.get("Content-Disposition"):
-                charset = part.get_content_charset() or "utf-8"
-                payload = part.get_payload(decode=True)
-                return payload.decode(charset, errors="ignore") if payload else ""
-        return ""
-    charset = message.get_content_charset() or "utf-8"
-    payload = message.get_payload(decode=True)
-    return payload.decode(charset, errors="ignore") if payload else ""
-
-
-def _build_payload(message):
-    payload = {
-        "message_id": message.get("Message-ID", ""),
-        "in_reply_to": message.get("In-Reply-To", ""),
-        "references": message.get("References", ""),
-        "from_email": parseaddr(message.get("From", ""))[1],
-        "subject": _decode(message.get("Subject", "")),
-        "body_snippet": _extract_snippet(message)[:1000],
-        "thread_id": message.get("Message-ID", ""),
-    }
-    date_header = message.get("Date")
-    if date_header:
-        try:
-            payload["received_at"] = parsedate_to_datetime(date_header).isoformat()
-        except (TypeError, ValueError):
-            pass
-    return payload
+import gmail_client
+from email_parsing import build_payload
 
 
 def check_replies(imap_config, report_fn):
@@ -60,6 +19,9 @@ def check_replies(imap_config, report_fn):
     seen before Django has actually processed it."""
     if not imap_config:
         return
+
+    if imap_config.get("oauth_refresh_token"):
+        return gmail_client.check_replies(imap_config, report_fn)
 
     conn_cls = imaplib.IMAP4_SSL if imap_config.get("use_ssl", True) else imaplib.IMAP4
     conn = conn_cls(imap_config["host"], imap_config["port"])
@@ -78,7 +40,7 @@ def check_replies(imap_config, report_fn):
                 continue
 
             message = email.message_from_bytes(msg_data[0][1])
-            payload = _build_payload(message)
+            payload = build_payload(message)
 
             try:
                 report_fn(payload)
