@@ -14,13 +14,21 @@ import requests
 PROVIDER_URLS = {
     "openrouter": "https://openrouter.ai/api/v1/chat/completions",
     "groq": "https://api.groq.com/openai/v1/chat/completions",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
 }
 KEY_ERROR_STATUS_CODES = (401, 402, 403)
 RATE_LIMIT_STATUS_CODE = 429
 
 
-def generate_text(prompt, api_key, model, provider="openrouter"):
+def generate_text(prompt_or_messages, api_key, model, provider="openrouter"):
     """Returns (text, error, is_key_error, is_connection_error).
+
+    prompt_or_messages can be:
+    - a string: wrapped into [{"role": "user", "content": <string>}] (legacy)
+    - a list of {"role": ..., "content": ...} dicts: used as-is, which lets
+      callers place format instructions in a "system" message and business
+      data in the "user" message — the two-role pattern Llama models respond
+      to far more reliably than a single big "user" blob.
 
     is_key_error=True means an auth/credit-shaped response (401/402/403).
     Seen in production on OpenRouter: a 401 "Missing Authentication header"
@@ -40,17 +48,20 @@ def generate_text(prompt, api_key, model, provider="openrouter"):
     just work once the blip/rate-limit window clears."""
     url = PROVIDER_URLS.get(provider, PROVIDER_URLS["openrouter"])
 
+    if isinstance(prompt_or_messages, str):
+        messages = [{"role": "user", "content": prompt_or_messages}]
+    else:
+        messages = prompt_or_messages
+
     try:
         resp = requests.post(
             url,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                # Generates a full subject + email body now, not just a
-                # one-line opening — 120 was tuned for the old single-line
-                # output and would truncate a real body mid-sentence.
-                "max_tokens": 350,
+                "messages": messages,
+                # Temperature raised slightly to allow organic variety across leads
+                "temperature": 1.1,
             },
             timeout=30,
         )
@@ -70,6 +81,9 @@ def generate_text(prompt, api_key, model, provider="openrouter"):
         data = resp.json()
     except ValueError as e:
         return None, f"Unexpected {provider} response shape: {e}. Raw: {resp.text[:300]}", False, False
+
+    if isinstance(data, list) and len(data) > 0:
+        data = data[0]
 
     if isinstance(data, dict) and "error" in data:
         # Free-tier/auto-routed models occasionally wrap an error inside an
