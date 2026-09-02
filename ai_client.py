@@ -63,12 +63,12 @@ def generate_text(prompt_or_messages, api_key, model, provider="openrouter"):
                 # Temperature raised slightly to allow organic variety across leads
                 "temperature": 1.1,
             },
-            timeout=120,
+            timeout=90,
         )
     except requests.RequestException as e:
         return None, str(e), False, True
 
-    if resp.status_code == RATE_LIMIT_STATUS_CODE:
+    if resp.status_code == RATE_LIMIT_STATUS_CODE or resp.status_code >= 500:
         return None, f"{resp.status_code}: {resp.text[:300]}", False, True
 
     if resp.status_code in KEY_ERROR_STATUS_CODES:
