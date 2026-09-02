@@ -19,7 +19,7 @@ def process_ai_jobs(config):
     jobs = api_client.fetch_ai_pending()
     for job in jobs:
         text, error, is_key_error, is_connection_error = ai_client.generate_text(
-            job["prompt"], ai_config["api_key"], ai_config["model_name"], ai_config.get("provider", "openrouter")
+            job["messages"], ai_config["api_key"], ai_config["model_name"], ai_config.get("provider", "openrouter")
         )
         if error:
             print(f"AI job failed for tracking {job['tracking_id']}: {error}")
