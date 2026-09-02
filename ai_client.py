@@ -63,7 +63,7 @@ def generate_text(prompt_or_messages, api_key, model, provider="openrouter"):
                 # Temperature raised slightly to allow organic variety across leads
                 "temperature": 1.1,
             },
-            timeout=30,
+            timeout=120,
         )
     except requests.RequestException as e:
         return None, str(e), False, True
